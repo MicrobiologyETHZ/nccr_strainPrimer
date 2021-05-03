@@ -3,6 +3,8 @@ channels:
   - bioconda
   - conda-forge
 dependencies:
-  - blast==2.5.0
+  - blast==2.10.1
   - biopython==1.78
   - pandas==1.2.2
+  - bwa
+  - catch

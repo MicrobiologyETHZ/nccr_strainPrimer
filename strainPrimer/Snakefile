@@ -1,0 +1,154 @@
+from pathlib import Path
+#samples = ['Z5951', 'Z5841']
+
+
+OUTDIR = Path(config['outDir'])
+GENOMEDIR = Path(config['dataDir'])
+sample_file = Path(config['sampleFile'])
+
+
+
+rule run_strainPrimer:
+    input: [str(genome) for genome in Path(GENOMEDIR).iterdir()]
+    output: touch(Path(OUTDIR)/'strainPrimer.done')
+    params:
+        genome_dir = GENOMEDIR,
+        output_dir = OUTDIR,
+        ncbi = config["backgroundDB"],
+        scratch = 1000,
+        mem = 8000,
+        time = 235,
+        qerrfile = OUTDIR/f'logs/strainPrimer.qerr',
+        qoutfile = OUTDIR/f'logs/strainPrimer.qout'
+    log:
+        log = OUTDIR/f'logs/strainPrimer.log'
+    conda:
+        "src/envs/strainPrimer.yaml"
+    threads:
+        32
+    shell: "python ./src/strainPrimer.py {params.genome_dir} {params.output_dir} {params.ncbi} "
+
+
+# def get_samples(sample_file):
+#     subsamples = []
+#     if Path(sample_file).is_file():
+#         subsamples = set(Path(sample_file).read_text().splitlines())
+#     if len(subsamples) == 0:
+#         exit(1)
+#     return subsamples
+#
+# samples = get_samples(sample_file)
+#
+# rule catch:
+#     input: [DATADIR/f'{sample}/{sample}.scaffolds.min500.fasta.gz' for sample in samples]
+#     output: OUTDIR/'catch/output.fasta'
+#     params:
+#         scratch = 1000,
+#         mem = 8000,
+#         time = 235,
+#         qerrfile = OUTDIR/f'logs/catch.qerr',
+#         qoutfile = OUTDIR/f'logs/catch.qout'
+#     conda:
+#         "envs/catch.yaml"
+#     log:
+#         log = OUTDIR/f'logs/catch.log'
+#     threads:
+#         64
+#     shell:
+#         "design.py {input} -pl 150 -c 0.05 --identify -o {output} &> {log.log}"
+#
+#
+# rule blastdb: # ERRORS when submitted to cluster via snakemake
+#     input: [DATADIR/f'{sample}/{sample}.scaffolds.min500.fasta.gz' for sample in samples]
+#     output: #touch(OUTDIR/'blastDB.done'),
+#         catFasta = OUTDIR/'all_strain.fasta'
+#     params:
+#         title = config['projectName'],
+#         scratch = 1000,
+#         mem = 8000,
+#         time = 235,
+#         qerrfile = OUTDIR/f'logs/blastdb.qerr',
+#         qoutfile = OUTDIR/f'logs/blastdb.qout'
+#     conda:
+#         "envs/blast.yaml"
+#     log:
+#         log = OUTDIR/f'logs/blastdb.log'
+#     threads:
+#         8
+#     shell:
+#         "zcat {input} > {output.catFasta}; "
+#         #"makeblastdb -in {output.catFasta} -title {params.title} -dbtype nucl "
+#
+# #
+# rule blast:
+#     input: query = OUTDIR/'catch/output.fasta',
+#         db = OUTDIR/'all_strain.fasta',
+#         dbDone = OUTDIR/'all_strain.fasta.ndb'
+#     output: blastFile = OUTDIR/'blast/blast.out'
+#     params:
+#         scratch = 1000,
+#         mem = 8000,
+#         time = 235,
+#         qerrfile = OUTDIR/f'logs/blast.qerr',
+#         qoutfile = OUTDIR/f'logs/blast.qout'
+#     conda:
+#         "envs/blast.yaml"
+#     threads:
+#         16
+#     shell:
+#          'blastn -db {input.db} -out {output.blastFile} '
+#          '-query {input.query} -outfmt '
+#          '"6 qseqid sseqid pident length qstart qend sstart send evalue bitscore qseq sstrand" '
+#          '-num_threads 16'
+#
+#
+# rule sortProbes:
+#     input: OUTDIR/'blast/blast.out',
+#     output: touch(OUTDIR/'blast/sortProbes.done'),
+#         [OUTDIR/f'probes/{sample}_probes.fasta' for sample in samples]
+#     params:
+#         out_dir = OUTDIR/'probes',
+#         scratch = 1000,
+#         mem = 8000,
+#         time = 235,
+#         qerrfile = OUTDIR/f'logs/sortProbes.qerr',
+#         qoutfile = OUTDIR/f'logs/sortProbes.qout'
+#     conda:
+#         "envs/blast.yaml"
+#     log:
+#         log=OUTDIR/f'logs/sortProbes.log'
+#     threads:
+#         8
+#     shell:
+#          'python src/sort_blast_by_strain.py {input} {params.out_dir} '
+#
+#
+# rule test:
+#     input: [OUTDIR/f'probes/{sample}.checkBackground.blast' for sample in ['Z5841', 'Z5951', 'Z5971', 'Z5991']]
+#     #input: OUTDIR/f'probes/Z5841.checkBackground.blast'
+#
+# rule checkBackground:
+#     input: OUTDIR/'probes/{sample}_probes.fasta',
+#     output:OUTDIR/'probes/{sample}.checkBackground.blast',
+#     params:
+#         out_dir = OUTDIR/'probes',
+#         db = config['backgroundDB'],
+#         scratch = 1000,
+#         mem = 8000,
+#         time = 235,
+#         qerrfile = lambda wildcards: OUTDIR/f'logs/{wildcards.sample}.checkBackground.qerr',
+#         qoutfile = lambda wildcards: OUTDIR/f'logs/{wildcards.sample}.checkBackground.qout'
+#     conda:
+#         "envs/blast.yaml"
+#     log:
+#         log=OUTDIR/'logs/{sample}.checkBackground.log'
+#     threads:
+#         32
+#     shell:
+#          'blastn -version ;'
+#          'blastn -db {params.db} -out {output} '
+#          '-query {input} -outfmt '
+#          '"6 qseqid sseqid pident length qstart qend sstart send evalue bitscore qseq sstrand" '
+#          '-num_threads 32 '
+#          '-max_target_seqs 1'
+#

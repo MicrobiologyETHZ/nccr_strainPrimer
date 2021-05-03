@@ -1,0 +1,5 @@
+projectName: HFD
+outDir: /nfs/nas22/fs2202/biol_micro_bioinf_nccr/hardt/mkmherzog/hfd/scratch/27_04_strainPrimer
+dataDir: /nfs/nas22/fs2202/biol_micro_bioinf_nccr/hardt/mkmherzog/hfd/scratch/genomes_for_strainPrimer
+sampleFile: /nfs/nas22/fs2202/biol_micro_bioinf_nccr/hardt/mkmherzog/hfd/data/processed/samples.txt
+backgroundDB: /nfs/cds/Databases/BLAST-NCBI/nt/June_2019/nt_v5
