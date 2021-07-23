@@ -134,8 +134,8 @@ def split_by_sample(df_with_uniq_probes, output_dir="../data/blast"):
 def get_unique_probes(genomes, output_dir, logger):
     fasta_with_probes = Path(output_dir)/"probes.fasta"
     probe_blast_hits = Path(output_dir)/"probes_blast_internal_db.txt"
-    logger.info("Skipping CATCH to design unique probes")
-    #run_catch_design(genomes, fasta_with_probes, logger)
+    logger.info("Running CATCH to design unique probes") # todo add check if this step completed sucessfully
+    run_catch_design(genomes, fasta_with_probes, logger)
     logger.info("Running BLAST to make sure probes are unique")
     blast_probes_against_input_genomes(genomes, output_dir, fasta_with_probes, probe_blast_hits, logger)
     logger.info("Writing unique probes for each genome")
@@ -148,7 +148,7 @@ def get_unique_probes(genomes, output_dir, logger):
 # -------------------------------- #
 
 
-def check_backgorund(sample_probe_fasta, ncbi_db, background_blast_output, logger):
+def check_backgorund(sample_probe_fasta, ncbi_db, negative_taxid, background_blast_output, logger):
     """
     BLAST each probe against NCBI db, see if there are any matches
     :param sample_probe_fasta:
@@ -157,8 +157,9 @@ def check_backgorund(sample_probe_fasta, ncbi_db, background_blast_output, logge
     :param logger
     :return:
     """
+    negative_taxa = f" -negative_taxids {negative_taxid} " if negative_taxid else ''
     cmd = f'blastn -db {ncbi_db} -out {background_blast_output} ' \
-          f'-query {sample_probe_fasta} -outfmt ' \
+          f'-query {sample_probe_fasta} {negative_taxa} -outfmt ' \
           f'"6 qseqid sseqid pident length qstart qend sstart send evalue bitscore qseq sstrand" ' \
           f'-num_threads 32 ' \
           f'-max_target_seqs 1'
@@ -166,25 +167,29 @@ def check_backgorund(sample_probe_fasta, ncbi_db, background_blast_output, logge
 
 
 def get_probes_with_no_background(sample_probe_fasta, background_blast_output):
-    df = pd.read_table(background_blast_output, header=None)
-    probes_with_background_hits = df[0].unique()
-    sample_probes = SeqIO.parse(sample_probe_fasta, 'fasta')
-    uniq_probes = []
-    for probe in sample_probes:
-        if probe.id not in probes_with_background_hits:
-            uniq_probes.append(probe)
-    SeqIO.write(uniq_probes, Path(sample_probe_fasta).with_suffix(".unique.fasta"), "fasta")
-    return Path(sample_probe_fasta).with_suffix(".unique.fasta")
+    try:
+        df = pd.read_table(background_blast_output, header=None)
+        probes_with_background_hits = df[0].unique()
+    except pd.errors.EmptyDataError:
+        probes_with_background_hits = []
+    finally:
+        sample_probes = SeqIO.parse(sample_probe_fasta, 'fasta')
+        uniq_probes = []
+        for probe in sample_probes:
+            if probe.id not in probes_with_background_hits:
+                uniq_probes.append(probe)
+        SeqIO.write(uniq_probes, Path(sample_probe_fasta).with_suffix(".unique.fasta"), "fasta")
+        return Path(sample_probe_fasta).with_suffix(".unique.fasta")
 
 
-def get_all_probes_without_background(samples, ncbi_db, output_dir, logger):
+def get_all_probes_without_background(samples, ncbi_db, negative_taxid, output_dir, logger):
     logger.info(f"Checking the probes against {ncbi_db}")
     unique_probe_files = []
     for sample in samples:
         logger.info(f"BLASTING {sample}")
         sample_probe_fasta = Path(output_dir)/f'{sample}_probes.fasta'
         background_blast_output = Path(output_dir)/f'{sample}.checkBackground.blast'
-        check_backgorund(sample_probe_fasta, ncbi_db, background_blast_output, logger)
+        check_backgorund(sample_probe_fasta, ncbi_db, negative_taxid, background_blast_output, logger)
         logger.info(f"BLASTING {sample} done, writing unique probes")
         unique_fasta = get_probes_with_no_background(sample_probe_fasta, background_blast_output)
         unique_probe_files.append(unique_fasta)
@@ -329,6 +334,7 @@ def find_primers_for_strain(strain_fasta, output_dir, logger):
         primer3_out = find_primers_for_probe(record)
         primers = parse_primer3_output(primer3_out)
         genome_file = Path(output_dir)/'genomes.fasta'  # todo don't hard code this?
+        # todo align to each genome separately?
         logger.info("Finding primer positions in the genome")
         primer_positions = find_primer_coordinates(primers, genome_file, output_dir, logger)
         if primer_positions:
@@ -364,7 +370,7 @@ def find_all_primers(output_dir, samples, logger):
 
 # Run the whole pipeline
 
-def get_primers(genome_dir, output_dir, ncbi_db):
+def get_primers(genome_dir, output_dir, ncbi_db, negative_taxid):
     genomes = [str(genome) for genome in Path(genome_dir).iterdir()]
     logger = get_logger(Path(output_dir)/"strainPrimer.log")
     logger.info('Step 1')
@@ -373,7 +379,7 @@ def get_primers(genome_dir, output_dir, ncbi_db):
     logger.info(f'Finished Step 1. These are the samples analysed: {samples}')
     logger.warning('Step 2')
     # Step 2: BLAST
-    get_all_probes_without_background(samples, ncbi_db, output_dir, logger)
+    get_all_probes_without_background(samples, ncbi_db, negative_taxid, output_dir, logger )
     # Step 3: Primer3
     logger.info('Step 3')
     find_all_primers(output_dir, samples, logger)
@@ -385,6 +391,7 @@ if __name__ == "__main__":
     genome_dir = sys.argv[1]
     output_dir = sys.argv[2]
     ncbi_db = sys.argv[3]
-    get_primers(genome_dir, output_dir, ncbi_db)
+    negative_taxid = sys.argv[4]
+    get_primers(genome_dir, output_dir, ncbi_db, negative_taxid)
 
 

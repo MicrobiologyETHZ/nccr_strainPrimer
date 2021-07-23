@@ -26,7 +26,7 @@ rule run_strainPrimer:
         "src/envs/strainPrimer.yaml"
     threads:
         32
-    shell: "python ./src/strainPrimer.py {params.genome_dir} {params.output_dir} {params.ncbi} "
+    shell: "python ./src/strainPrimer.py {params.genome_dir} {params.output_dir} {params.ncbi} 562 "
 
 
 # def get_samples(sample_file):
