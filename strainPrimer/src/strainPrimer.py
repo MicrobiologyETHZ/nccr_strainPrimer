@@ -7,6 +7,7 @@ Step 3:
 Step 4:
 
 """
+import argparse
 import pandas as pd
 import sys
 from Bio.SeqRecord import SeqRecord
@@ -29,13 +30,11 @@ def get_logger(log_file_path):
     file_handler = logging.FileHandler(log_file_path)
     stream_handler.setLevel(logging.INFO)
     file_handler.setLevel(logging.ERROR)
-
     # Create formatters and add it to handlers
     stream_format = logging.Formatter('%(asctime)s- %(levelname)s - %(message)s')
     file_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     stream_handler.setFormatter(stream_format)
     file_handler.setFormatter(file_format)
-
     # Add handlers to the logger
     logger.addHandler(stream_handler)
     logger.addHandler(file_handler)
@@ -45,9 +44,9 @@ def get_logger(log_file_path):
 def check_call(command, logger):
     """
     Simple wrapper to execute check_call and catch exceptions
-    :param command:
-    :param logger:
-    :return:
+    :param command: shell command to run
+    :param logger: logger instance
+    :return: return code of the command
     """
     try:
         returncode = subprocess.check_call(command, shell=True)
@@ -65,10 +64,11 @@ def run_catch_design(genomes, fasta_with_probes, logger, probe_length=150, genom
     Run CATCH to find unique parts for each of the genomes
     :param genomes: list of genomes to analyze
     :param fasta_with_probes: output file name in which probes will be written
-    :param probe_length:
-    :param genome_coverage:
-    :param logger
+    :param probe_length: length of the probes
+    :param genome_coverage: % of genome that should be covered by the probes
+    :param logger: logger instance
     :return: returncode of CATCH
+
     """
     genomes_string = ' '.join([str(genome) for genome in genomes])
     catch_cmd = f"design.py {genomes_string} -pl {probe_length} -c {genome_coverage} --identify -o {fasta_with_probes}"
@@ -86,12 +86,12 @@ def blast_probes_against_input_genomes(genomes, output_dir, fasta_with_probes, p
     :param logger
     :return:
     """
-
-    genomes_string = ' '.join(genomes)
+    # todo runds locally without errors, test on cluster
+    genomes_string = ' '.join([str(genome) for genome in genomes])
     genomes_fasta = Path(output_dir)/'genomes.fasta'
-    #blast_cmd = f'zcat {genomes_string} > {genomes_fasta}; ' \
-                #f'makeblastdb -in {genomes_fasta} -dbtype nucl ;' \
-    blast_cmd =f'blastn -db {genomes_fasta} -out {probe_blast_hits} ' \
+    blast_cmd = f'zcat {genomes_string} > {genomes_fasta}; ' \
+                f'makeblastdb -in {genomes_fasta} -dbtype nucl ;'\
+                f'blastn -db {genomes_fasta} -out {probe_blast_hits} ' \
                 f'-query {fasta_with_probes} -outfmt ' \
                 f'"6 qseqid sseqid pident length qstart qend sstart send evalue bitscore qseq sstrand" ' \
                 f'-num_threads 16'
@@ -131,11 +131,14 @@ def split_by_sample(df_with_uniq_probes, output_dir="../data/blast"):
     return list(df_with_uniq_probes.sampleID.unique())
 
 
-def get_unique_probes(genomes, output_dir, logger):
+def get_unique_probes(genomes, output_dir, force_catch, logger):
     fasta_with_probes = Path(output_dir)/"probes.fasta"
     probe_blast_hits = Path(output_dir)/"probes_blast_internal_db.txt"
-    logger.info("Running CATCH to design unique probes") # todo add check if this step completed sucessfully
-    run_catch_design(genomes, fasta_with_probes, logger)
+    if not force_catch and fasta_with_probes.is_file():
+        logger.info("Skipping CATCH")
+    else:
+        logger.info("Running CATCH to design unique probes") # todo add check if this step completed sucessfully
+        run_catch_design(genomes, fasta_with_probes, logger)
     logger.info("Running BLAST to make sure probes are unique")
     blast_probes_against_input_genomes(genomes, output_dir, fasta_with_probes, probe_blast_hits, logger)
     logger.info("Writing unique probes for each genome")
@@ -148,21 +151,24 @@ def get_unique_probes(genomes, output_dir, logger):
 # -------------------------------- #
 
 
-def check_backgorund(sample_probe_fasta, ncbi_db, negative_taxid, background_blast_output, logger):
+def check_backgorund(sample_probe_fasta, ncbi_db, negative_taxid, background_blast_output, logger, max_targets=1):
     """
     BLAST each probe against NCBI db, see if there are any matches
     :param sample_probe_fasta:
     :param ncbi_db:
     :param background_blast_output:
     :param logger
+    :param max_targets
     :return:
     """
+
     negative_taxa = f" -negative_taxids {negative_taxid} " if negative_taxid else ''
+    max_target_seqs = f" -max_target_seqs {max_targets} " if max_targets > 0 else ''
     cmd = f'blastn -db {ncbi_db} -out {background_blast_output} ' \
           f'-query {sample_probe_fasta} {negative_taxa} -outfmt ' \
           f'"6 qseqid sseqid pident length qstart qend sstart send evalue bitscore qseq sstrand" ' \
           f'-num_threads 32 ' \
-          f'-max_target_seqs 1'
+          f'{max_target_seqs}'
     return check_call(cmd, logger)
 
 
@@ -200,6 +206,7 @@ def get_all_probes_without_background(samples, ncbi_db, negative_taxid, output_d
 #      Step 3: Run Primer3         #
 # -------------------------------- #
 
+# todo need to parallelize this to make it faster !!!
 
 def get_primer3_argument(probe_id, probe_seq):
     return f'SEQUENCE_ID={probe_id}\n' \
@@ -368,30 +375,72 @@ def find_all_primers(output_dir, samples, logger):
             sampleDf.to_csv(Path(output_dir)/f"{sample}_final_primer_list.csv")
 
 
+def get_final_probes_fasta(sample, output_dir, logger):
+    output_dir = Path(output_dir)
+    logger.info(f"Checking uniqueness of probes for {sample}")
+    if Path(output_dir/f"{sample}_final_primer_list.csv").is_file() and Path(output_dir/f"{sample}_probes.fasta").is_file():
+        probes = pd.read_csv(Path(output_dir/f"{sample}_final_primer_list.csv")).dropna(axis=1).columns
+        out_file = f"{output_dir}/{sample}_final_probes.fasta"
+        records = SeqIO.parse(Path(output_dir)/f"{sample}_probes.fasta", 'fasta')
+        final_records = [record for record in records if record.id in probes]
+        SeqIO.write(final_records, out_file, "fasta")
+        return out_file
+    elif not Path(output_dir/f"{sample}_probes.fasta").is_file():
+        logger.info(f"No probes found for {sample}")
+        return None
+    else:
+        logger.info(f"No final primer list found for {sample}")
+        return None
+
+
+def get_background_genomes_with_final_probes(sample, final_probes_fasta, ncbi_db, output_dir, logger):
+    # blast them against whole NCBI
+    if final_probes_fasta:
+        background_blast_output = Path(output_dir)/ f'{sample}.finalProbes.blast'
+        check_backgorund(sample_probe_fasta=final_probes_fasta, ncbi_db=ncbi_db,
+                         negative_taxid=None, background_blast_output=background_blast_output,
+                         logger=logger, max_targets=0)
+
+    else:
+        logger.info("No final probes fasta")
+        return None
+
+
+
+
 # Run the whole pipeline
 
-def get_primers(genome_dir, output_dir, ncbi_db, negative_taxid):
+def get_primers(genome_dir, output_dir, ncbi_db, negative_taxid, force_catch):
     genomes = [str(genome) for genome in Path(genome_dir).iterdir()]
     logger = get_logger(Path(output_dir)/"strainPrimer.log")
     logger.info('Step 1')
     # Step 1: Identifies unique probes and returns a list of sample names (for each genome analysed)
-    samples = get_unique_probes(genomes, output_dir, logger)
+    samples = get_unique_probes(genomes, output_dir, force_catch, logger)
     logger.info(f'Finished Step 1. These are the samples analysed: {samples}')
     logger.warning('Step 2')
     # Step 2: BLAST
-    get_all_probes_without_background(samples, ncbi_db, negative_taxid, output_dir, logger )
+    get_all_probes_without_background(samples, ncbi_db, negative_taxid, output_dir, logger)
     # Step 3: Primer3
     logger.info('Step 3')
     find_all_primers(output_dir, samples, logger)
     logger.info("All Done!")
     return None
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='Find unique probes in genomes and design qPCR primers for them')
+    parser.add_argument('-g', '--genomeDir',   help='Directory containing genomes in fasta format')
+    parser.add_argument('-f', '--force_catch', action='store_true', help='Force CATCH to run, even if probes.fasta already exists')
+    parser.add_argument('-db', '--database',  default='/nfs/cds/Databases/BLAST-NCBI/nt/June_2019/nt_v5',
+                        help='BLAST reference database')
+    parser.add_argument('-o', '--outDir',  help='Output directory')
+    parser.add_argument('-e,', '--exclude', help='Taxid to exclude') # todo make sure can handle multiple
+
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    genome_dir = sys.argv[1]
-    output_dir = sys.argv[2]
-    ncbi_db = sys.argv[3]
-    negative_taxid = sys.argv[4]
-    get_primers(genome_dir, output_dir, ncbi_db, negative_taxid)
+    args = parse_args()
+    get_primers(args.genomeDir, args.outDir, args.database, args.exclude, args.force_catch)
 
 

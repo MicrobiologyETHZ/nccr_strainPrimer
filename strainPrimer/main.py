@@ -12,4 +12,4 @@ def main():
 @click.option('--negative_taxid', '-ntax',  help='taxid to mask, ex. 562 for E.coli')
 @click.option('--genome_dir', '-tn', help='genome directory')
 def probes(genome_dir, ncbi_db, negative_taxid, output_dir):
-    get_primers(genome_dir, output_dir, ncbi_db, negative_taxid)
+    get_primers(genome_dir, output_dir, ncbi_db, negative_taxid, )

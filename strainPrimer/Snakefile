@@ -1,7 +1,6 @@
 from pathlib import Path
 #samples = ['Z5951', 'Z5841']
 
-
 OUTDIR = Path(config['outDir'])
 GENOMEDIR = Path(config['dataDir'])
 sample_file = Path(config['sampleFile'])
@@ -26,7 +25,8 @@ rule run_strainPrimer:
         "src/envs/strainPrimer.yaml"
     threads:
         32
-    shell: "python ./src/strainPrimer.py {params.genome_dir} {params.output_dir} {params.ncbi} 562 "
+    shell: "export BLASTDB_LMDB_MAP_SIZE=100000000; "
+           "python ./src/strainPrimer.py -g {params.genome_dir} -o {params.output_dir} -db {params.ncbi} -e 562 "
 
 
 # def get_samples(sample_file):
