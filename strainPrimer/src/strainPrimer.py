@@ -1,10 +1,10 @@
 """
 strainPrimer
 
-Step 1:
-Step 2:
-Step 3:
-Step 4:
+Step 1: CATCH
+Step 2: BLAST
+Step 3: PRIMER3
+Step 4: in silico PCR
 
 """
 import argparse
